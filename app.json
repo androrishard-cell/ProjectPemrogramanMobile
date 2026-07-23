@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Laundry Pro",
+    "slug": "laundryapp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "laundryapp",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.laundryapp",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Aplikasi membutuhkan lokasi untuk mencari outlet terdekat",
+        "NSCameraUsageDescription": "Aplikasi membutuhkan kamera untuk scan QR Code",
+        "NSPhotoLibraryUsageDescription": "Aplikasi membutuhkan galeri untuk upload gambar"
+      }
+    },
+    "android": {
+      "package": "com.laundryapp",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
+    },
+    "experiments": {
+      "tsconfigPaths": true
+    }
+  }
+}
