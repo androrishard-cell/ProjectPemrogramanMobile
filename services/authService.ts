@@ -1,135 +1,175 @@
+// services/authService.ts
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
   signOut,
-  sendPasswordResetEmail,
+  onAuthStateChanged,
+  User,
+  updateProfile,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase/firebase';
+import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase/firebase';  // ← IMPORT DARI firebase/firebase.ts
 
 export interface UserProfile {
   uid: string;
-  email: string | null;
-  name: string | null;
-  role?: 'admin' | 'user';
+  name: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  role: 'admin' | 'user';
+  photoURL?: string;
+  createdAt: Date;
+  updatedAt?: Date;
 }
 
-const validateEmail = (email: string): boolean => {
-  const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return regex.test(email.trim());
-};
-
-const mapFirebaseError = (errorCode: string): string => {
-  const errorMap: Record<string, string> = {
-    'auth/email-already-in-use': 'Email sudah digunakan. Silakan gunakan email lain.',
-    'auth/invalid-email': 'Format email tidak valid. Contoh: nama@domain.com',
-    'auth/weak-password': 'Password terlalu lemah. Minimal 6 karakter.',
-    'auth/operation-not-allowed': 'Login dengan email/password belum diaktifkan di Firebase Console.',
-    'auth/too-many-requests': 'Terlalu banyak percobaan. Coba lagi nanti.',
-    'auth/user-not-found': 'Akun tidak ditemukan. Silakan daftar terlebih dahulu.',
-    'auth/wrong-password': 'Password salah. Silakan coba lagi.',
-    'auth/invalid-credential': 'Email atau password salah.',
-    'auth/network-request-failed': 'Koneksi internet bermasalah. Periksa koneksi Anda.',
-    'auth/user-disabled': 'Akun Anda telah dinonaktifkan. Hubungi admin.'
-  };
-  return errorMap[errorCode] || 'Terjadi kesalahan. Silakan coba lagi.';
-};
-
-export const registerUser = async (
-  name: string,
-  email: string,
-  password: string,
-  role: 'admin' | 'user' = 'user'
-) => {
+// ============ REGISTER ============
+export const registerUser = async (name: string, email: string, password: string, role: 'admin' | 'user' = 'user') => {
   try {
-    if (!validateEmail(email)) {
-      return { success: false, error: 'Format email tidak valid.' };
-    }
-    if (password.length < 6) {
-      return { success: false, error: 'Password minimal 6 karakter.' };
-    }
+    console.log('📝 Registering:', { name, email, role });
+    
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+    console.log('✅ User created in Auth:', user.uid);
 
-    const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-    await setDoc(doc(db, 'users', userCredential.user.uid), {
-      name: name.trim(),
-      email: email.trim(),
+    await updateProfile(user, { displayName: name });
+
+    const userProfile: UserProfile = {
+      uid: user.uid,
+      name: name,
+      email: email,
+      phone: '',
+      address: '',
       role: role,
+      photoURL: '',
       createdAt: new Date(),
-    });
-
-    return { 
-      success: true, 
-      user: {
-        uid: userCredential.user.uid,
-        email: userCredential.user.email,
-        name: name.trim(),
-        role: role
-      }
+      updatedAt: new Date(),
     };
+
+    await setDoc(doc(db, 'users', user.uid), userProfile);
+    console.log('✅ Profile saved to Firestore with ID:', user.uid);
+
+    return { success: true, user: userProfile };
   } catch (error: any) {
-    return { success: false, error: mapFirebaseError(error.code) };
+    console.log('❌ Register error:', error.code, error.message);
+    
+    let message = 'Pendaftaran gagal';
+    switch (error.code) {
+      case 'auth/email-already-in-use':
+        message = 'Email sudah digunakan';
+        break;
+      case 'auth/invalid-email':
+        message = 'Email tidak valid';
+        break;
+      case 'auth/weak-password':
+        message = 'Password terlalu lemah. Minimal 6 karakter';
+        break;
+      case 'auth/operation-not-allowed':
+        message = 'Email/Password belum diaktifkan di Firebase Console';
+        break;
+      case 'auth/network-request-failed':
+        message = 'Koneksi internet bermasalah. Cek koneksi Anda';
+        break;
+      default:
+        message = 'Terjadi kesalahan. Silakan coba lagi';
+    }
+    return { success: false, error: message };
   }
 };
 
+// ============ LOGIN ============
 export const loginUser = async (email: string, password: string) => {
   try {
-    if (!validateEmail(email)) {
-      return { success: false, error: 'Format email tidak valid.' };
-    }
+    console.log('📝 Logging in:', { email });
+    
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+    console.log('✅ User logged in:', user.uid);
 
-    const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
-    const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-    let role: 'admin' | 'user' = 'user';
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
     if (userDoc.exists()) {
-      role = userDoc.data().role || 'user';
+      const userData = userDoc.data() as UserProfile;
+      return { success: true, user: userData };
+    } else {
+      // User ada di Auth tapi belum ada di Firestore → buat otomatis
+      console.log('⚠️ Profil Firestore belum ada, membuat otomatis...');
+      const newProfile: UserProfile = {
+        uid: user.uid,
+        name: user.displayName || email.split('@')[0],
+        email: user.email || email,
+        phone: '',
+        address: '',
+        role: 'user',
+        photoURL: user.photoURL || '',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      await setDoc(doc(db, 'users', user.uid), newProfile);
+      console.log('✅ Profil Firestore berhasil dibuat untuk:', user.uid);
+      return { success: true, user: newProfile };
     }
-
-    return { 
-      success: true, 
-      user: {
-        uid: userCredential.user.uid,
-        email: userCredential.user.email,
-        name: userCredential.user.displayName,
-        role: role
-      }
-    };
   } catch (error: any) {
-    return { success: false, error: mapFirebaseError(error.code) };
+    console.log('❌ Login error:', error.code, error.message);
+    
+    let message = 'Login gagal';
+    switch (error.code) {
+      case 'auth/user-not-found':
+        message = 'Email tidak terdaftar';
+        break;
+      case 'auth/wrong-password':
+        message = 'Password salah';
+        break;
+      case 'auth/invalid-email':
+        message = 'Email tidak valid';
+        break;
+      case 'auth/invalid-credential':
+        message = 'Email atau password salah';
+        break;
+      case 'auth/too-many-requests':
+        message = 'Terlalu banyak percobaan. Coba lagi nanti';
+        break;
+      case 'auth/user-disabled':
+        message = 'Akun Anda telah dinonaktifkan';
+        break;
+      case 'auth/network-request-failed':
+        message = 'Koneksi internet bermasalah. Cek koneksi Anda';
+        break;
+      default:
+        message = `Terjadi kesalahan: ${error.message}`;
+    }
+    return { success: false, error: message };
   }
 };
 
+// ============ LOGOUT ============
 export const logoutUser = async () => {
   try {
     await signOut(auth);
     return { success: true };
   } catch (error: any) {
-    return { success: false, error: mapFirebaseError(error.code) };
+    return { success: false, error: 'Gagal keluar' };
   }
 };
 
-export const resetPassword = async (email: string) => {
-  try {
-    if (!validateEmail(email)) {
-      return { success: false, error: 'Format email tidak valid.' };
-    }
-    await sendPasswordResetEmail(auth, email.trim());
-    return { success: true };
-  } catch (error: any) {
-    return { success: false, error: mapFirebaseError(error.code) };
-  }
+// ============ GET CURRENT USER ============
+export const getCurrentUser = (): Promise<UserProfile | null> => {
+  return new Promise((resolve) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user: User | null) => {
+      unsubscribe();
+      if (user) {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          resolve(userDoc.data() as UserProfile);
+        } else {
+          resolve(null);
+        }
+      } else {
+        resolve(null);
+      }
+    });
+  });
 };
 
-export const getCurrentUser = (): UserProfile | null => {
-  const user = auth.currentUser;
-  if (!user) return null;
-  return {
-    uid: user.uid,
-    email: user.email,
-    name: user.displayName,
-    role: 'user'
-  };
-};
-
+// ============ CHECK ADMIN ============
 export const isAdmin = (user: UserProfile | null): boolean => {
   return user?.role === 'admin';
 };

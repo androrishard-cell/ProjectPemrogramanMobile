@@ -1,3 +1,4 @@
+// services/firestoreService.ts
 import { 
   collection, 
   addDoc, 
@@ -11,7 +12,7 @@ import {
   orderBy,
   Timestamp 
 } from 'firebase/firestore';
-import { db } from '../firebase/firebase';
+import { db } from '../firebase/firebase'; 
 
 export interface Customer {
   id?: string;
